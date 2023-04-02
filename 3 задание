@@ -1,0 +1,80 @@
+import pandas as pd
+from sqlalchemy import create_engine
+
+db_config = {'user': 'challenge_user', # имя пользователя
+             'pwd': 'aT00GAh944YU4Q1J4zbzryW6Yrz11iq54coz', # пароль
+             'host': 'rc1a-eqy3nymy2wp6tbx2.mdb.yandexcloud.net', # адрес сервера
+             'port': 6432, # порт подключения
+             'db': 'data-analyst-challenge'}# название базы данных
+ 
+# Формируем строку соединения с БД.
+connection_string = 'postgresql://{}:{}@{}:{}/{}'.format(db_config['user'],
+                                             db_config['pwd'],
+                                             db_config['host'],
+                                             db_config['port'],
+                                             db_config['db'])
+# Подключаемся к БД.
+engine = create_engine(connection_string)
+
+# Формируем sql-запрос(пример).
+query = ''' WITH cte AS (
+  SELECT 
+    finished_lesson_test.lesson_id, 
+    user_id, 
+    profession_id, 
+    profession_name, 
+    lesson_name, 
+    date_created, 
+    LAG(date_created) OVER (PARTITION BY user_id, profession_id ORDER BY date_created) AS prev_lesson_date
+  FROM 
+    finished_lesson_test 
+    JOIN lesson_index_test ON finished_lesson_test.lesson_id = lesson_index_test.lesson_id 
+  WHERE 
+    lesson_index_test.profession_name = 'data-analyst' 
+    AND EXTRACT(year FROM date_created) = 2020 
+    AND EXTRACT(month FROM date_created) = 4
+)
+SELECT 
+  EXTRACT(SECOND FROM (date_created - prev_lesson_date)) as delta_seconds,
+prev_lesson_date,
+  date_created, 
+  lesson_id, 
+  profession_name, 
+  user_id
+FROM 
+  cte 
+WHERE 
+  date_created - prev_lesson_date <= INTERVAL '5 seconds';
+
+        '''
+
+# Выполняем запрос и сохраняем результат
+# выполнения в DataFrame.
+# Sqlalchemy автоматически установит названия колонок
+# такими же, как у таблицы в БД.
+data_raw = pd.io.sql.read_sql(query, con = engine)
+
+
+
+
+data_raw.head()
+
+
+# Правда непонятно почему в задании указано вывести lesson_id
+
+
+import plotly.express as px
+# проверяем, есть ли уроки с слишком быстрым временем прохождения
+if data_raw.empty:
+    print('Нет уроков с слишком быстрым временем прохождения')
+else:
+    # считаем количество таких уроков
+    num_fast_lessons = len(data_raw)
+    # выводим наименования уроков
+    fast_lesson_ids = list(data_raw['lesson_id'].unique())
+    print('Есть уроки с слишком быстрым временем прохождения:')
+    print(fast_lesson_ids)
+    # создаем интерактивный график для визуализации распределения времени прохождения уроков
+    fig = px.histogram(data_raw, x='delta_seconds', nbins=30,
+                       title='Распределение времени прохождения уроков')
+    fig.show()
